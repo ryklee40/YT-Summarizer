@@ -54,52 +54,65 @@ def get_transcript(video_url, lang='en'):
             return text.strip()
 """
 
-from youtube_transcript_api import YouTubeTranscriptApi, TranscriptsDisabled, NoTranscriptFound
-from requests import Session
-from http.cookiejar import MozillaCookieJar
-
 def get_transcript(video_url, lang='en', cookies_path=None):
-    """Fetch transcript text using youtube_transcript_api with .list() and .fetch()."""
-    # Extract YouTube video ID
-    match = re.search(r"(?:v=|\/)([0-9A-Za-z_-]{11}).*", video_url)
-    if not match:
-        raise Exception("Invalid YouTube URL.")
-    video_id = match.group(1)
+    """Fetch transcript using yt-dlp with optional cookie support."""
+    ydl_opts = {
+        'skip_download': True,
+        'writesubtitles': True,
+        'writeautomaticsub': True,
+        'subtitleslangs': [lang, 'en'],
+        'quiet': True,
+        'no_warnings': True,
+    }
+    if cookies_path:
+        ydl_opts['cookiefile'] = cookies_path
 
     try:
-        http_client = Session()
-        if cookies_path:
-            jar = MozillaCookieJar(cookies_path)
-            jar.load(ignore_discard=True, ignore_expires=True)
-            http_client.cookies = jar
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(video_url, download=False)
+            subtitles = info.get('subtitles') or {}
+            auto_captions = info.get('automatic_captions') or {}
 
-        # Create an instance and call list() on it
-        api = YouTubeTranscriptApi(http_client=http_client)
-        transcripts = api.list(video_id)
-        
-        # Try to find a transcript in the requested language
-        try:
-            transcript_obj = transcripts.find_transcript([lang])
-        except NoTranscriptFound:
-            # Fallback to English
+            # Prefer manual subtitles, fall back to auto captions
+            all_subs = subtitles if subtitles else auto_captions
+
+            if not all_subs:
+                raise Exception("No subtitles or captions found for this video.")
+
+            # Pick the first available English variant
+            caption_url = None
+            for key in [lang, 'en']:
+                if key in all_subs:
+                    formats = all_subs[key]
+                    # Prefer json3, then any format
+                    for fmt in formats:
+                        if fmt.get('ext') == 'json3':
+                            caption_url = fmt['url']
+                            break
+                    if not caption_url:
+                        caption_url = formats[0]['url']
+                    break
+
+            if not caption_url:
+                raise Exception("No English captions found.")
+
+            headers = {'User-Agent': 'Mozilla/5.0'}
+            response = requests.get(caption_url, headers=headers)
+
             try:
-                transcript_obj = transcripts.find_manually_created_transcript(['en'])
-            except NoTranscriptFound:
-                transcript_obj = transcripts.find_generated_transcript(['en'])
-        
-        # Fetch transcript contents
-        transcript_data = transcript_obj.fetch()
-        
-        # Access text attribute directly (not using .get())
-        text = " ".join(
-            [entry.text.strip() for entry in transcript_data if hasattr(entry, 'text') and entry.text.strip()]
-        )
-        return text.strip()
+                data = response.json()
+                text_lines = []
+                for event in data.get('events', []):
+                    for seg in event.get('segs', []):
+                        text = seg.get('utf8', '').strip()
+                        if text and text != '\n':
+                            text_lines.append(text)
+                return ' '.join(text_lines)
+            except Exception:
+                text = re.sub(r'<[^>]+>', '', response.text)
+                text = text.replace('&amp;', '&').replace('&#39;', "'").replace('&quot;', '"')
+                return ' '.join(text.split()).strip()
 
-    except TranscriptsDisabled:
-        raise Exception("Transcripts are disabled for this video.")
-    except NoTranscriptFound:
-        raise Exception(f"No transcript found for language '{lang}'.")
     except Exception as e:
         raise Exception(f"Could not fetch transcript: {e}")
 
