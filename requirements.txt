@@ -1,0 +1,6 @@
+streamlit==1.50.0
+lancedb==0.25.2
+sentence-transformers==5.1.1
+youtube-transcript-api==1.2.3
+yt-dlp==2025.10.14
+requests==2.32.5
