@@ -16,11 +16,22 @@ with st.sidebar:
     st.header("Load Video")
     video_url = st.text_input("Enter YouTube URL:", placeholder="https://www.youtube.com/watch?v=...")
 
+    st.markdown("**Optional: YouTube Cookies**")
+    cookies_file = st.file_uploader("Upload cookies.txt (if getting IP blocked)", type="txt")
+
+    cookies_path = None
+    if cookies_file:
+        import tempfile, os
+        tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".txt")
+        tmp.write(cookies_file.read())
+        tmp.close()
+        cookies_path = tmp.name
+
     if st.button("Load Video", type="primary"):
         if video_url:
             try:
                 with st.spinner("Fetching transcript..."):
-                    transcript = get_transcript(video_url)
+                    transcript = get_transcript(video_url, cookies_path=cookies_path)
                 
                 with st.spinner("Building search index..."):
                     model, table, num_chunks = build_vector_store(transcript)

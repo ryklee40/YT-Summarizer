@@ -55,8 +55,10 @@ def get_transcript(video_url, lang='en'):
 """
 
 from youtube_transcript_api import YouTubeTranscriptApi, TranscriptsDisabled, NoTranscriptFound
+from requests import Session
+from http.cookiejar import MozillaCookieJar
 
-def get_transcript(video_url, lang='en'):
+def get_transcript(video_url, lang='en', cookies_path=None):
     """Fetch transcript text using youtube_transcript_api with .list() and .fetch()."""
     # Extract YouTube video ID
     match = re.search(r"(?:v=|\/)([0-9A-Za-z_-]{11}).*", video_url)
@@ -65,8 +67,14 @@ def get_transcript(video_url, lang='en'):
     video_id = match.group(1)
 
     try:
+        http_client = Session()
+        if cookies_path:
+            jar = MozillaCookieJar(cookies_path)
+            jar.load(ignore_discard=True, ignore_expires=True)
+            http_client.cookies = jar
+
         # Create an instance and call list() on it
-        api = YouTubeTranscriptApi()
+        api = YouTubeTranscriptApi(http_client=http_client)
         transcripts = api.list(video_id)
         
         # Try to find a transcript in the requested language
